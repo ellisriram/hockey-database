@@ -46,13 +46,11 @@
     </div>
   </div>
 
-  <!-- Season stats -->
   <div id="season-section" style="display:none">
     <div class="page-title" style="font-size:16px;margin-bottom:12px" id="season-title"></div>
     <div id="season-result"></div>
   </div>
 
-  <!-- Game log -->
   <div id="gbg-section" style="display:none;margin-top:28px">
     <div class="page-title" style="font-size:16px;margin-bottom:12px">Game Log</div>
     <div id="gbg-result"></div>
@@ -103,14 +101,12 @@
       return;
     }
 
-    // Use the first matching player's info for the title
     const p = rows[0];
     document.getElementById("season-title").textContent =
       `${p.player_name} — ${p.team_name || p.current_team || ""}  · ${p.position || ""} · Season Stats`;
 
     renderSeasonStats(rows);
 
-    // Load game log for that player
     const gbgParams = new URLSearchParams({ player_id: p.player_id, situation });
     if (season) gbgParams.set("season", season);
     const gbgRes  = await fetch("/api/player-games?" + gbgParams);

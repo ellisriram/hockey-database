@@ -51,6 +51,14 @@
   <div id="result">
     <div class="state-box"><div class="icon">🎯</div>Press Load to see shot data</div>
   </div>
+
+  <div id="shot-detail" style="display:none" class="detail-panel">
+    <div class="detail-header">
+      <div class="detail-title" id="detail-title"></div>
+      <button class="detail-close" onclick="closeDetail()">Close</button>
+    </div>
+    <div id="detail-body"></div>
+  </div>
 </div>
 
 <script>
@@ -89,6 +97,7 @@
   async function search() {
     const el     = document.getElementById("result");
     el.innerHTML = '<div class="spinner"></div>';
+    closeDetail();
 
     const params = new URLSearchParams({ type: currentTab });
     const season = document.getElementById("f-season").value;
@@ -129,6 +138,23 @@
     { key: "hd_save_pct",      label: "HD SV%",   fmt: v => v != null ? v + "%" : "—" },
   ];
 
+  const DETAIL_COLS = [
+    { key: "date", label: "Date", fmt: v => `<span class="muted">${v ? String(v).slice(0,10) : "—"}</span>` },
+    { key: "season_year", label: "Season", fmt: v => `<span class="muted">${v}</span>` },
+    { key: "_matchup", label: "Matchup", fmt: (v,r) => `${r.home_team} ${r.home_team_goals ?? "—"}–${r.away_team_goals ?? "—"} ${r.away_team}` },
+    { key: "period", label: "P", fmt: v => v ?? "—" },
+    { key: "time", label: "Time", fmt: v => formatTime(v) },
+    { key: "team_code", label: "Team", fmt: v => `<span class="muted">${v || "—"}</span>` },
+    { key: "event", label: "Event", fmt: v => v ?? "—" },
+    { key: "shot_type", label: "Type", fmt: v => v ?? "—" },
+    { key: "x_goal", label: "xG", fmt: v => v ?? "—" },
+    { key: "shot_angle_adjusted", label: "Angle", fmt: v => v ?? "—" },
+    { key: "arena_adjusted_shot_distance", label: "Dist", fmt: v => v ?? "—" },
+    { key: "shot_on_empty_net", label: "EN", fmt: v => v ? "Yes" : "No" },
+    { key: "shot_rebound", label: "Reb", fmt: v => v ? "Yes" : "No" },
+    { key: "shot_rush", label: "Rush", fmt: v => v ? "Yes" : "No" },
+  ];
+
   function render() {
     const el = document.getElementById("result");
     if (!rows.length) { el.innerHTML = '<div class="state-box">No data found.</div>'; return; }
@@ -142,14 +168,71 @@
       html += `<th class="${sorted?"sorted":""}" onclick="sortBy('${c.key}')">${c.label} ${sorted?(sortDir===1?"▼":"▲"):"↕"}</th>`;
     });
     html += `</tr></thead><tbody>`;
-    rows.forEach(r => {
-      html += `<tr>` + cols.map(c => `<td>${c.fmt(r[c.key])}</td>`).join("") + `</tr>`;
+    rows.forEach((r, i) => {
+      html += `<tr data-idx="${i}" class="click-row">` + cols.map(c => `<td>${c.fmt(r[c.key])}</td>`).join("") + `</tr>`;
     });
     html += `</tbody></table></div>`;
-    if (currentTab === "by-goalie") {
-      html += `<p style="font-size:11px;color:#4a5580;margin-top:8px">GSAX = Goals Saved Above Expected. Min 50 shots faced.</p>`;
-    }
     el.innerHTML = html;
+    document.querySelectorAll("#result tbody tr").forEach((tr) => {
+      tr.addEventListener("click", () => {
+        const idx = parseInt(tr.getAttribute("data-idx"));
+        openDetail(rows[idx]);
+      });
+    });
+  }
+
+  function formatTime(v) {
+    if (v == null || v === "") return "—";
+    const n = Number(v);
+    if (Number.isNaN(n)) return String(v);
+    const m = Math.floor(n / 60);
+    const s = Math.floor(n % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  }
+
+  async function openDetail(row) {
+    if (!row || !row.player_id) return;
+    const params = new URLSearchParams();
+    if (currentTab === "by-player") params.set("player_id", row.player_id);
+    else params.set("goalie_id", row.player_id);
+
+    const season = document.getElementById("f-season").value;
+    const team = document.getElementById("f-team").value;
+    if (season) params.set("season", season);
+    if (team) params.set("team", team);
+
+    const detailEl = document.getElementById("detail-body");
+    detailEl.innerHTML = '<div class="spinner"></div>';
+    document.getElementById("shot-detail").style.display = "block";
+
+    const title = currentTab === "by-player" ? row.player_name : row.goalie;
+    document.getElementById("detail-title").textContent = `${title} — Shot Detail`;
+
+    const res = await fetch("/api/shots-detail?" + params);
+    const data = await res.json();
+    renderDetail(data);
+  }
+
+  function renderDetail(data) {
+    const detailEl = document.getElementById("detail-body");
+    if (!data.length) {
+      detailEl.innerHTML = '<div class="state-box">No shots found for these filters.</div>';
+      return;
+    }
+    let html = `<div class="result-meta"><span class="result-count">${data.length} shots (showing up to 500)</span></div>`;
+    html += `<div class="table-wrap"><table><thead><tr>`;
+    DETAIL_COLS.forEach(c => { html += `<th>${c.label}</th>`; });
+    html += `</tr></thead><tbody>`;
+    data.forEach(r => {
+      html += `<tr>` + DETAIL_COLS.map(c => `<td>${c.fmt(r[c.key], r)}</td>`).join("") + `</tr>`;
+    });
+    html += `</tbody></table></div>`;
+    detailEl.innerHTML = html;
+  }
+
+  function closeDetail() {
+    document.getElementById("shot-detail").style.display = "none";
+    document.getElementById("detail-body").innerHTML = "";
   }
 
   function sortBy(col) {

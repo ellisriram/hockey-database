@@ -70,6 +70,15 @@ def clean_shoots(val):
     val = none_if_blank(val)
     return val if val in ('L', 'R') else None
 
+def header_index(header, name, occurrence=1):
+    count = 0
+    for i, h in enumerate(header):
+        if h == name:
+            count += 1
+            if count == occurrence:
+                return i
+    return None
+
 def insert_team(cursor, team_code, team_name=None):
     cursor.execute("""
         INSERT INTO team (team_code, team_name)
@@ -77,6 +86,35 @@ def insert_team(cursor, team_code, team_name=None):
         ON DUPLICATE KEY UPDATE
             team_name = COALESCE(team_name, VALUES(team_name))
     """, (team_code, team_name))
+
+def insert_import_season_team(cursor, row):
+    cursor.execute("""
+        INSERT INTO import_seasons_all_teams (
+            team, season, situation, games_played,
+            goalsFor, goalsAgainst,
+            shotsOnGoalFor, shotsOnGoalAgainst,
+            xGoalsFor, xGoalsAgainst,
+            hitsFor, takeawaysFor, giveawaysFor
+        ) VALUES (
+            %s, %s, %s, %s,
+            %s, %s,
+            %s, %s,
+            %s, %s,
+            %s, %s, %s
+        )
+        ON DUPLICATE KEY UPDATE
+            situation = VALUES(situation),
+            games_played = VALUES(games_played),
+            goalsFor = VALUES(goalsFor),
+            goalsAgainst = VALUES(goalsAgainst),
+            shotsOnGoalFor = VALUES(shotsOnGoalFor),
+            shotsOnGoalAgainst = VALUES(shotsOnGoalAgainst),
+            xGoalsFor = VALUES(xGoalsFor),
+            xGoalsAgainst = VALUES(xGoalsAgainst),
+            hitsFor = VALUES(hitsFor),
+            takeawaysFor = VALUES(takeawaysFor),
+            giveawaysFor = VALUES(giveawaysFor)
+    """, row)
 
 def insert_season(cursor, season_year):
     label = f"{season_year}-{str(season_year + 1)[-2:]}"
@@ -394,6 +432,7 @@ seen_lines = {}
 
 season_count = team_count = player_count = game_count = 0
 skater_stat_count = goalie_stat_count = line_count = line_stat_count = shot_count = 0
+season_team_count = 0
 
 
 print("Loading all_players.csv...")
@@ -420,6 +459,10 @@ with open(f"{DATA_DIR}/2026_games_teams.csv", "r") as f:
     reader = csv.DictReader(f)
     for row in reader:
         if none_if_blank(row.get('home_or_away')) != 'HOME':
+            continue
+        if none_if_blank(row.get('position')) != 'Team Level':
+            continue
+        if none_if_blank(row.get('situation')) != 'all':
             continue
 
         season_year = to_int(row.get('season'))
@@ -451,6 +494,64 @@ with open(f"{DATA_DIR}/2026_games_teams.csv", "r") as f:
 
 connection.commit()
 print(f"  Seasons: {season_count}, Games: {game_count}")
+
+print("Loading 2026_seasons_teams.csv...")
+with open(f"{DATA_DIR}/2026_seasons_teams.csv", "r") as f:
+    reader = csv.reader(f)
+    header = next(reader)
+    idx_team = header_index(header, "team", 1)
+    idx_season = header_index(header, "season", 1)
+    idx_position = header_index(header, "position", 1)
+    idx_situation = header_index(header, "situation", 1)
+    idx_games_played = header_index(header, "games_played", 1)
+    idx_goals_for = header_index(header, "goalsFor", 1)
+    idx_goals_against = header_index(header, "goalsAgainst", 1)
+    idx_sog_for = header_index(header, "shotsOnGoalFor", 1)
+    idx_sog_against = header_index(header, "shotsOnGoalAgainst", 1)
+    idx_xgf = header_index(header, "xGoalsFor", 1)
+    idx_xga = header_index(header, "xGoalsAgainst", 1)
+    idx_hits_for = header_index(header, "hitsFor", 1)
+    idx_takeaways = header_index(header, "takeawaysFor", 1)
+    idx_giveaways = header_index(header, "giveawaysFor", 1)
+
+    for row in reader:
+        team_code = none_if_blank(row[idx_team]) if idx_team is not None else None
+        season_year = to_int(row[idx_season]) if idx_season is not None else None
+        position = none_if_blank(row[idx_position]) if idx_position is not None else None
+        situation = none_if_blank(row[idx_situation]) if idx_situation is not None else None
+
+        if position != "Team Level" or situation != "all":
+            continue
+
+        if season_year and season_year not in seen_seasons:
+            insert_season(cursor, season_year)
+            seen_seasons[season_year] = True
+            season_count += 1
+
+        if team_code and team_code not in seen_teams:
+            insert_team(cursor, team_code)
+            seen_teams[team_code] = True
+            team_count += 1
+
+        insert_import_season_team(cursor, (
+            team_code,
+            season_year,
+            situation,
+            to_int(row[idx_games_played]) if idx_games_played is not None else None,
+            to_int(row[idx_goals_for]) if idx_goals_for is not None else None,
+            to_int(row[idx_goals_against]) if idx_goals_against is not None else None,
+            to_int(row[idx_sog_for]) if idx_sog_for is not None else None,
+            to_int(row[idx_sog_against]) if idx_sog_against is not None else None,
+            to_float(row[idx_xgf]) if idx_xgf is not None else None,
+            to_float(row[idx_xga]) if idx_xga is not None else None,
+            to_int(row[idx_hits_for]) if idx_hits_for is not None else None,
+            to_int(row[idx_takeaways]) if idx_takeaways is not None else None,
+            to_int(row[idx_giveaways]) if idx_giveaways is not None else None
+        ))
+        season_team_count += 1
+
+connection.commit()
+print(f"  Season team rows: {season_team_count}")
 
 print("Loading 2026_games_skaters.csv...")
 with open(f"{DATA_DIR}/2026_games_skaters.csv", "r") as f:
@@ -652,3 +753,4 @@ print(f"Goalie stats: {goalie_stat_count}")
 print(f"Lines:        {line_count}")
 print(f"Line stats:   {line_stat_count}")
 print(f"Shots:        {shot_count}")
+print(f"Season teams: {season_team_count}")

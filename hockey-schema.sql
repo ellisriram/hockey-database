@@ -16,6 +16,23 @@ CREATE TABLE season (
     PRIMARY KEY (season_year)
 );
 
+CREATE TABLE import_seasons_all_teams (
+    team VARCHAR(3),
+    season INT,
+    situation VARCHAR(10),
+    games_played INT,
+    goalsFor INT,
+    goalsAgainst INT,
+    shotsOnGoalFor INT,
+    shotsOnGoalAgainst INT,
+    xGoalsFor FLOAT,
+    xGoalsAgainst FLOAT,
+    hitsFor INT,
+    takeawaysFor INT,
+    giveawaysFor INT,
+    PRIMARY KEY (team, season)
+);
+
 CREATE TABLE player (
     player_id INT,
     player_name VARCHAR(100),

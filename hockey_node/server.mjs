@@ -10,7 +10,6 @@ app.use(express.urlencoded({ extended: false }));
 
 app.get("/", (req, res) => res.sendFile("landing.html", { root: "." }));
 
-// ── Player season stats ───────────────────────────────────────────────────────
 app.get("/api/players", (req, res) => {
   const name      = `%${req.query.name || ""}%`;
   const situation = req.query.situation || "all";
@@ -59,7 +58,6 @@ app.get("/api/players", (req, res) => {
   db.query(sql, params, (results) => res.json(results));
 });
 
-// ── Player game-by-game stats ─────────────────────────────────────────────────
 app.get("/api/player-games", (req, res) => {
   const playerId  = parseInt(req.query.player_id);
   const situation = req.query.situation || "all";
@@ -106,7 +104,6 @@ app.get("/api/player-games", (req, res) => {
   db.query(sql, params, (results) => res.json(results));
 });
 
-// ── Team season stats ─────────────────────────────────────────────────────────
 app.get("/api/teams", (req, res) => {
   const team   = req.query.team   || null;
   const season = req.query.season ? parseInt(req.query.season) : null;
@@ -117,7 +114,6 @@ app.get("/api/teams", (req, res) => {
   if (season) { clauses.push("season = ?"); params.push(season); }
   const where = "WHERE " + clauses.join(" AND ");
 
-  // Pull directly from the pre-aggregated import table — one row per team per season
   const sql = `
     SELECT
       team                                   AS team_code,
@@ -138,13 +134,10 @@ app.get("/api/teams", (req, res) => {
   `;
 
   db.query(sql, params, (results) => {
-    // wins/losses not in seasons_all_teams — derive from game log separately
-    // Just return what we have; frontend will display it
     res.json(results);
   });
 });
 
-// ── Team game-by-game ─────────────────────────────────────────────────────────
 app.get("/api/team-games", (req, res) => {
   const team   = req.query.team;
   const season = req.query.season ? parseInt(req.query.season) : null;
@@ -154,7 +147,6 @@ app.get("/api/team-games", (req, res) => {
   const seasonClause = season ? "AND g.season_year = ?" : "";
   if (season) params.push(season);
 
-  // DISTINCT on game_id + date IS NOT NULL deduplicates the import
   const sql = `
     SELECT DISTINCT
       g.game_id,
@@ -193,7 +185,6 @@ app.get("/api/team-games", (req, res) => {
   });
 });
 
-// ── Line stats ────────────────────────────────────────────────────────────────
 app.get("/api/lines", (req, res) => {
   const p1        = parseInt(req.query.player1);
   const p2        = parseInt(req.query.player2);
@@ -256,7 +247,6 @@ app.get("/api/lines", (req, res) => {
   });
 });
 
-// ── Player search for autocomplete ────────────────────────────────────────────
 app.get("/api/player-search", (req, res) => {
   const name = `%${req.query.name || ""}%`;
   const sql = `
@@ -269,16 +259,12 @@ app.get("/api/player-search", (req, res) => {
   db.query(sql, [name], (results) => res.json(results));
 });
 
-// ── Shot stats ─────────────────────────────────────────────────────────────────
-// All queries use player_game_stats / goalie_game_stats — never the raw shot table.
-// The shot table (1GB+) causes server crashes on unfiltered scans.
 app.get("/api/shots", (req, res) => {
   const type   = req.query.type   || "by-player";
   const season = req.query.season ? parseInt(req.query.season) : null;
   const team   = req.query.team   || null;
   const player = req.query.player ? `%${req.query.player}%` : null;
 
-  // ── Top shooters by xGoals ───────────────────────────────────────────────
   if (type === "by-player") {
     const clauses = ["pgs.situation = 'all'"];
     const params  = [];
@@ -289,6 +275,7 @@ app.get("/api/shots", (req, res) => {
 
     const sql = `
       SELECT
+        p.player_id AS player_id,
         p.player_name,
         p.position,
         COALESCE(t.team_name, p.current_team) AS team_name,
@@ -312,7 +299,6 @@ app.get("/api/shots", (req, res) => {
     return db.query(sql, params, (results) => res.json(results));
   }
 
-  // ── Goalie stats ──────────────────────────────────────────────────────────
   if (type === "by-goalie") {
     const clauses = ["ggs.situation = 'all'"];
     const params  = [];
@@ -322,6 +308,7 @@ app.get("/api/shots", (req, res) => {
 
     const sql = `
       SELECT
+        p.player_id AS player_id,
         p.player_name AS goalie,
         COALESCE(t.team_name, p.current_team) AS team_name,
         g.season_year,
@@ -350,14 +337,79 @@ app.get("/api/shots", (req, res) => {
   res.json([]);
 });
 
-// ── Seasons list ──────────────────────────────────────────────────────────────
+app.get("/api/shots-detail", (req, res) => {
+  const shooterId = req.query.player_id ? parseInt(req.query.player_id) : null;
+  const goalieId = req.query.goalie_id ? parseInt(req.query.goalie_id) : null;
+  if (!shooterId && !goalieId) return res.json([]);
+
+  const season = req.query.season ? parseInt(req.query.season) : null;
+  const team = req.query.team || null;
+
+  const clauses = [];
+  const params = [];
+  if (shooterId) {
+    clauses.push("s.shooter_player_id = ?");
+    params.push(shooterId);
+  }
+  if (goalieId) {
+    clauses.push("s.goalie_id = ?");
+    params.push(goalieId);
+  }
+  if (season) {
+    clauses.push("g.season_year = ?");
+    params.push(season);
+  }
+  if (team) {
+    clauses.push("s.team_code = ?");
+    params.push(team);
+  }
+  const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
+
+  const sql = `
+    SELECT
+      s.game_id,
+      g.date,
+      g.season_year,
+      g.home_team,
+      g.away_team,
+      s.team_code,
+      s.shooter_player_id,
+      s.goalie_id,
+      s.event,
+      s.shot_type,
+      s.shot_on_empty_net,
+      s.shot_rebound,
+      s.shot_rush,
+      s.shot_generated_rebound,
+      s.shot_goalie_froze,
+      s.shot_play_stopped,
+      s.shot_play_continued_in_zone,
+      s.shot_play_continued_outside_zone,
+      s.x_goal,
+      s.x_rebound,
+      s.x_freeze,
+      s.shot_angle_adjusted,
+      s.arena_adjusted_shot_distance,
+      s.period,
+      s.time,
+      s.home_team_goals,
+      s.away_team_goals
+    FROM shot s
+    JOIN game g ON s.game_id = g.game_id
+    ${where}
+    ORDER BY g.date DESC, s.period DESC, s.time DESC
+    LIMIT 500
+  `;
+
+  db.query(sql, params, (results) => res.json(results));
+});
+
 app.get("/api/seasons", (req, res) => {
   db.query("SELECT season_year, season_label FROM season ORDER BY season_year DESC", [], (r) =>
     res.json(r)
   );
 });
 
-// ── Teams list ────────────────────────────────────────────────────────────────
 app.get("/api/teams-list", (req, res) => {
   db.query("SELECT team_code, COALESCE(team_name, team_code) AS team_name FROM team ORDER BY team_code", [], (r) =>
     res.json(r)

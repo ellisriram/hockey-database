@@ -63,7 +63,7 @@
 </div>
 
 <script>
-  let selectedPlayers = []; // [{player_id, player_name, position}]
+  let selectedPlayers = [];
   let acTimeout = null;
 
   async function loadSeasons() {
@@ -77,7 +77,6 @@
     });
   }
 
-  // Autocomplete
   document.getElementById("f-player").addEventListener("input", () => {
     clearTimeout(acTimeout);
     acTimeout = setTimeout(autocomplete, 250);
