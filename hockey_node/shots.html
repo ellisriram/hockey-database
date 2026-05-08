@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shots — Hockey Stats</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <a class="nav-logo" href="landing.html">🏒 Hockey Stats</a>
+  <a href="players.html">Players</a>
+  <a href="teams.html">Teams</a>
+  <a href="lines.html">Lines</a>
+  <a href="shots.html" class="active">Shots</a>
+</nav>
+
+<div class="page">
+  <div class="page-title">Shot Analysis</div>
+  <div class="page-sub">Shooting stats by player and goalie performance — aggregated from game stats</div>
+
+  <div class="sub-tabs">
+    <button class="sub-tab active" onclick="setTab('by-player', this)">Top shooters</button>
+    <button class="sub-tab"        onclick="setTab('by-goalie', this)">Goalies</button>
+  </div>
+
+  <div class="filters">
+    <div class="field">
+      <label>Season</label>
+      <select id="f-season" style="width:130px">
+        <option value="">All seasons</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Team</label>
+      <select id="f-team" style="width:160px">
+        <option value="">All teams</option>
+      </select>
+    </div>
+    <div class="field" id="player-field">
+      <label>Player name</label>
+      <input id="f-player" type="text" placeholder="e.g. Ovechkin" style="width:160px">
+    </div>
+    <div class="field" style="justify-content:flex-end">
+      <label>&nbsp;</label>
+      <button onclick="search()">Load</button>
+    </div>
+  </div>
+
+  <div id="result">
+    <div class="state-box"><div class="icon">🎯</div>Press Load to see shot data</div>
+  </div>
+</div>
+
+<script>
+  let currentTab = "by-player";
+  let rows = [];
+  let sortCol = null, sortDir = 1;
+
+  function setTab(tab, el) {
+    currentTab = tab;
+    document.querySelectorAll(".sub-tab").forEach(t => t.classList.remove("active"));
+    el.classList.add("active");
+    document.getElementById("player-field").style.display = tab === "by-player" ? "" : "none";
+    document.getElementById("result").innerHTML = `<div class="state-box"><div class="icon">🎯</div>Press Load to see shot data</div>`;
+  }
+
+  async function loadDropdowns() {
+    const [seasRes, teamRes] = await Promise.all([fetch("/api/seasons"), fetch("/api/teams-list")]);
+    const seasons = await seasRes.json();
+    const teams   = await teamRes.json();
+
+    const sSel = document.getElementById("f-season");
+    seasons.forEach(s => {
+      const o = document.createElement("option");
+      o.value = s.season_year; o.textContent = s.season_label || s.season_year;
+      sSel.appendChild(o);
+    });
+
+    const tSel = document.getElementById("f-team");
+    teams.forEach(t => {
+      const o = document.createElement("option");
+      o.value = t.team_code; o.textContent = `${t.team_code} — ${t.team_name}`;
+      tSel.appendChild(o);
+    });
+  }
+
+  async function search() {
+    const el     = document.getElementById("result");
+    el.innerHTML = '<div class="spinner"></div>';
+
+    const params = new URLSearchParams({ type: currentTab });
+    const season = document.getElementById("f-season").value;
+    const team   = document.getElementById("f-team").value;
+    const player = document.getElementById("f-player").value.trim();
+    if (season) params.set("season", season);
+    if (team)   params.set("team",   team);
+    if (player && currentTab === "by-player") params.set("player", player);
+
+    const res  = await fetch("/api/shots?" + params);
+    rows = await res.json();
+    render();
+  }
+
+  const PLAYER_COLS = [
+    { key: "player_name",  label: "Player",   fmt: v => `<span class="hi">${v}</span>` },
+    { key: "position",     label: "Pos",      fmt: v => v ? `<span class="badge badge-${v}">${v}</span>` : "—" },
+    { key: "team_name",    label: "Team",     fmt: v => `<span class="muted">${v || "—"}</span>` },
+    { key: "season_year",  label: "Season",   fmt: v => `<span class="muted">${v}</span>` },
+    { key: "shots_on_goal",label: "SOG",      fmt: v => v ?? "—" },
+    { key: "goals",        label: "Goals",    fmt: v => `<span class="hi">${v ?? "—"}</span>` },
+    { key: "sh_pct",       label: "Sh%",      fmt: v => v != null ? v + "%" : "—" },
+    { key: "total_xgoal",  label: "Total xG", fmt: v => v ?? "—" },
+    { key: "hd_goals",     label: "HD Goals", fmt: v => v ?? "—" },
+    { key: "hd_shots",     label: "HD Shots", fmt: v => `<span class="muted">${v ?? "—"}</span>` },
+  ];
+
+  const GOALIE_COLS = [
+    { key: "goalie",           label: "Goalie",   fmt: v => `<span class="hi">${v}</span>` },
+    { key: "team_name",        label: "Team",     fmt: v => `<span class="muted">${v || "—"}</span>` },
+    { key: "season_year",      label: "Season",   fmt: v => `<span class="muted">${v}</span>` },
+    { key: "shots_faced",      label: "SA",       fmt: v => v ?? "—" },
+    { key: "goals_against",    label: "GA",       fmt: v => v ?? "—" },
+    { key: "save_pct",         label: "SV%",      fmt: v => v != null ? "." + String(Math.round(v * 10)).padStart(3,"0") : "—" },
+    { key: "gsax",             label: "GSAX",     fmt: v => { const n = parseFloat(v); return `<span style="color:${n>0?"#3fb950":n<0?"#f85149":"#8b949e"}">${n>0?"+":""}${v}</span>`; } },
+    { key: "hd_goals_against", label: "HD GA",    fmt: v => v ?? "—" },
+    { key: "hd_shots_faced",   label: "HD SA",    fmt: v => `<span class="muted">${v ?? "—"}</span>` },
+    { key: "hd_save_pct",      label: "HD SV%",   fmt: v => v != null ? v + "%" : "—" },
+  ];
+
+  function render() {
+    const el = document.getElementById("result");
+    if (!rows.length) { el.innerHTML = '<div class="state-box">No data found.</div>'; return; }
+
+    const cols = currentTab === "by-player" ? PLAYER_COLS : GOALIE_COLS;
+
+    let html = `<div class="result-meta"><span class="result-count">${rows.length} rows</span></div>`;
+    html += `<div class="table-wrap"><table><thead><tr>`;
+    cols.forEach(c => {
+      const sorted = c.key === sortCol;
+      html += `<th class="${sorted?"sorted":""}" onclick="sortBy('${c.key}')">${c.label} ${sorted?(sortDir===1?"▼":"▲"):"↕"}</th>`;
+    });
+    html += `</tr></thead><tbody>`;
+    rows.forEach(r => {
+      html += `<tr>` + cols.map(c => `<td>${c.fmt(r[c.key])}</td>`).join("") + `</tr>`;
+    });
+    html += `</tbody></table></div>`;
+    if (currentTab === "by-goalie") {
+      html += `<p style="font-size:11px;color:#4a5580;margin-top:8px">GSAX = Goals Saved Above Expected. Min 50 shots faced.</p>`;
+    }
+    el.innerHTML = html;
+  }
+
+  function sortBy(col) {
+    if (sortCol === col) sortDir *= -1; else { sortCol = col; sortDir = 1; }
+    rows.sort((a, b) => {
+      const av = a[col], bv = b[col];
+      if (av == null) return 1; if (bv == null) return -1;
+      return (!isNaN(parseFloat(av)) ? parseFloat(av) - parseFloat(bv)
+        : String(av).localeCompare(String(bv))) * sortDir;
+    });
+    render();
+  }
+
+  document.getElementById("f-player").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+  loadDropdowns();
+</script>
+</body>
+</html>

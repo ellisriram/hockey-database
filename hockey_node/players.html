@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Players — Hockey Stats</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <a class="nav-logo" href="landing.html">🏒 Hockey Stats</a>
+  <a href="players.html" class="active">Players</a>
+  <a href="teams.html">Teams</a>
+  <a href="lines.html">Lines</a>
+  <a href="shots.html">Shots</a>
+</nav>
+
+<div class="page">
+  <div class="page-title">Player Stats</div>
+  <div class="page-sub">Search a player by name to see their season stats and full game log</div>
+
+  <div class="filters">
+    <div class="field">
+      <label>Player name</label>
+      <input id="f-name" type="text" placeholder="e.g. Connor McDavid" style="width:220px">
+    </div>
+    <div class="field">
+      <label>Season</label>
+      <select id="f-season" style="width:130px">
+        <option value="">All seasons</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Situation</label>
+      <select id="f-sit" style="width:110px">
+        <option value="all">All</option>
+        <option value="5on5">5 on 5</option>
+        <option value="5on4">Power play</option>
+        <option value="4on5">Pen. kill</option>
+      </select>
+    </div>
+    <div class="field" style="justify-content:flex-end">
+      <label>&nbsp;</label>
+      <button onclick="search()">Search</button>
+    </div>
+  </div>
+
+  <!-- Season stats -->
+  <div id="season-section" style="display:none">
+    <div class="page-title" style="font-size:16px;margin-bottom:12px" id="season-title"></div>
+    <div id="season-result"></div>
+  </div>
+
+  <!-- Game log -->
+  <div id="gbg-section" style="display:none;margin-top:28px">
+    <div class="page-title" style="font-size:16px;margin-bottom:12px">Game Log</div>
+    <div id="gbg-result"></div>
+  </div>
+
+  <div id="empty-state">
+    <div class="state-box"><div class="icon">👤</div>Enter a player name and press Search</div>
+  </div>
+</div>
+
+<script>
+  async function loadSeasons() {
+    const res  = await fetch("/api/seasons");
+    const data = await res.json();
+    const sel  = document.getElementById("f-season");
+    data.forEach(s => {
+      const o = document.createElement("option");
+      o.value = s.season_year; o.textContent = s.season_label || s.season_year;
+      sel.appendChild(o);
+    });
+  }
+
+  async function search() {
+    const name = document.getElementById("f-name").value.trim();
+    if (!name) return;
+
+    document.getElementById("empty-state").style.display = "none";
+    document.getElementById("season-section").style.display = "none";
+    document.getElementById("gbg-section").style.display = "none";
+    document.getElementById("season-result").innerHTML = '<div class="spinner"></div>';
+    document.getElementById("gbg-result").innerHTML    = '<div class="spinner"></div>';
+    document.getElementById("season-section").style.display = "block";
+    document.getElementById("gbg-section").style.display    = "block";
+
+    const situation = document.getElementById("f-sit").value;
+    const season    = document.getElementById("f-season").value;
+
+    const seasonParams = new URLSearchParams({ name, situation });
+    if (season) seasonParams.set("season", season);
+
+    const res  = await fetch("/api/players?" + seasonParams);
+    const rows = await res.json();
+
+    if (!rows.length) {
+      document.getElementById("season-result").innerHTML = '<div class="state-box">No player found.</div>';
+      document.getElementById("gbg-result").innerHTML    = "";
+      document.getElementById("gbg-section").style.display = "none";
+      return;
+    }
+
+    // Use the first matching player's info for the title
+    const p = rows[0];
+    document.getElementById("season-title").textContent =
+      `${p.player_name} — ${p.team_name || p.current_team || ""}  · ${p.position || ""} · Season Stats`;
+
+    renderSeasonStats(rows);
+
+    // Load game log for that player
+    const gbgParams = new URLSearchParams({ player_id: p.player_id, situation });
+    if (season) gbgParams.set("season", season);
+    const gbgRes  = await fetch("/api/player-games?" + gbgParams);
+    const gbgData = await gbgRes.json();
+    renderGbg(gbgData);
+  }
+
+  const SEASON_COLS = [
+    { key: "season_year", label: "Season",  fmt: v => `<span class="muted">${v}</span>` },
+    { key: "gp",          label: "GP",      fmt: v => v ?? "—" },
+    { key: "goals",       label: "G",       fmt: v => v ?? "—" },
+    { key: "a1",          label: "A1",      fmt: v => v ?? "—" },
+    { key: "a2",          label: "A2",      fmt: v => v ?? "—" },
+    { key: "points",      label: "PTS",     fmt: v => `<strong>${v ?? "—"}</strong>` },
+    { key: "x_goals",     label: "xG",      fmt: v => v ?? "—" },
+    { key: "game_score",  label: "GS avg",  fmt: v => v ?? "—" },
+    { key: "hd_goals",    label: "HDG",     fmt: v => v ?? "—" },
+    { key: "toi_min",     label: "TOI",     fmt: v => v ?? "—" },
+    { key: "shots",       label: "SOG",     fmt: v => `<span class="muted">${v ?? "—"}</span>` },
+    { key: "hits",        label: "Hits",    fmt: v => `<span class="muted">${v ?? "—"}</span>` },
+    { key: "takeaways",   label: "TK",      fmt: v => `<span class="muted">${v ?? "—"}</span>` },
+    { key: "giveaways",   label: "GV",      fmt: v => `<span class="muted">${v ?? "—"}</span>` },
+  ];
+
+  function renderSeasonStats(rows) {
+    let html = `<div class="table-wrap"><table><thead><tr>`;
+    SEASON_COLS.forEach(c => { html += `<th>${c.label}</th>`; });
+    html += `</tr></thead><tbody>`;
+    rows.forEach(r => {
+      html += `<tr>` + SEASON_COLS.map(c => `<td>${c.fmt(r[c.key])}</td>`).join("") + `</tr>`;
+    });
+    html += `</tbody></table></div>`;
+    document.getElementById("season-result").innerHTML = html;
+  }
+
+  const GBG_COLS = [
+    { key: "date",       label: "Date",    fmt: v => `<span class="muted">${v ? String(v).slice(0,10) : "—"}</span>` },
+    { key: "season_year",label: "Season",  fmt: v => `<span class="muted">${v}</span>` },
+    { key: "_matchup",   label: "Matchup", fmt: (v,r) => `<span style="font-size:12px">${r.home_team_name} ${r.home_score}–${r.away_score} ${r.away_team_name}</span>` },
+    { key: "goals",      label: "G",       fmt: v => v > 0 ? `<span class="hi">${v}</span>` : (v ?? "—") },
+    { key: "a1",         label: "A1",      fmt: v => v ?? "—" },
+    { key: "a2",         label: "A2",      fmt: v => v ?? "—" },
+    { key: "points",     label: "PTS",     fmt: v => `<strong>${v ?? "—"}</strong>` },
+    { key: "x_goals",    label: "xG",      fmt: v => v ?? "—" },
+    { key: "game_score", label: "GS",      fmt: v => v ?? "—" },
+    { key: "hd_goals",   label: "HDG",     fmt: v => v ?? "—" },
+    { key: "toi_min",    label: "TOI",     fmt: v => v ?? "—" },
+    { key: "shots",      label: "SOG",     fmt: v => `<span class="muted">${v ?? "—"}</span>` },
+    { key: "hits",       label: "Hits",    fmt: v => `<span class="muted">${v ?? "—"}</span>` },
+  ];
+
+  function renderGbg(data) {
+    const el = document.getElementById("gbg-result");
+    if (!data.length) { el.innerHTML = '<div class="state-box">No games found.</div>'; return; }
+
+    let html = `<div class="result-meta"><span class="result-count">${data.length} games</span></div>`;
+    html += `<div class="table-wrap"><table><thead><tr>`;
+    GBG_COLS.forEach(c => { html += `<th>${c.label}</th>`; });
+    html += `</tr></thead><tbody>`;
+    data.forEach(r => {
+      html += `<tr>` + GBG_COLS.map(c => `<td>${c.fmt(r[c.key], r)}</td>`).join("") + `</tr>`;
+    });
+    html += `</tbody></table></div>`;
+    el.innerHTML = html;
+  }
+
+  document.getElementById("f-name").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+  loadSeasons();
+</script>
+</body>
+</html>
