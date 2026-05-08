@@ -3,18 +3,10 @@ DROP SCHEMA IF EXISTS hockey_schema;
 CREATE SCHEMA hockey_schema;
 USE hockey_schema;
 
-CREATE TABLE division (
-    division_name VARCHAR(30) NOT NULL,
-    conference VARCHAR(20) NOT NULL,
-    PRIMARY KEY (division_name)
-);
-
 CREATE TABLE team (
     team_code VARCHAR(3) NOT NULL,
     team_name VARCHAR(100),
-    division VARCHAR(30) NOT NULL,
-    PRIMARY KEY (team_code),
-    FOREIGN KEY (division) REFERENCES division(division_name)
+    PRIMARY KEY (team_code)
 );
 
 CREATE TABLE season (

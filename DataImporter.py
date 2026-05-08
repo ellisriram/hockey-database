@@ -6,12 +6,6 @@ DB_USER = "root"
 DB_PASSWORD = "2943"
 DB_NAME = "hockey_schema"
 DATA_DIR = "data/2026"
-DEFAULT_DIVISION = "Unknown"
-DEFAULT_CONFERENCE = "Unknown"
-
-# ------------------------------------------------------------------ #
-# Helpers
-# ------------------------------------------------------------------ #
 
 def none_if_blank(val):
     val = str(val).strip()
@@ -76,24 +70,13 @@ def clean_shoots(val):
     val = none_if_blank(val)
     return val if val in ('L', 'R') else None
 
-# ------------------------------------------------------------------ #
-# Insert functions
-# ------------------------------------------------------------------ #
-
-def insert_division(cursor, division_name, conference):
+def insert_team(cursor, team_code, team_name=None):
     cursor.execute("""
-        INSERT IGNORE INTO division (division_name, conference)
+        INSERT INTO team (team_code, team_name)
         VALUES (%s, %s)
-    """, (division_name, conference))
-
-def insert_team(cursor, team_code, team_name=None, division_name=DEFAULT_DIVISION):
-    cursor.execute("""
-        INSERT INTO team (team_code, team_name, division)
-        VALUES (%s, %s, %s)
         ON DUPLICATE KEY UPDATE
-            team_name = COALESCE(team_name, VALUES(team_name)),
-            division = VALUES(division)
-    """, (team_code, team_name, division_name))
+            team_name = COALESCE(team_name, VALUES(team_name))
+    """, (team_code, team_name))
 
 def insert_season(cursor, season_year):
     label = f"{season_year}-{str(season_year + 1)[-2:]}"
@@ -398,10 +381,6 @@ def insert_shot(cursor, row, game_id):
         to_float(row.get('averageRestDifference'))
     ))
 
-# ------------------------------------------------------------------ #
-# Connection
-# ------------------------------------------------------------------ #
-
 connection = mysql.connector.connect(
     host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME
 )
@@ -416,14 +395,7 @@ seen_lines = {}
 season_count = team_count = player_count = game_count = 0
 skater_stat_count = goalie_stat_count = line_count = line_stat_count = shot_count = 0
 
-# ------------------------------------------------------------------ #
-# 0. Default division for teams without metadata
-# ------------------------------------------------------------------ #
-insert_division(cursor, DEFAULT_DIVISION, DEFAULT_CONFERENCE)
 
-# ------------------------------------------------------------------ #
-# 1. Players — data/2026/all_players.csv
-# ------------------------------------------------------------------ #
 print("Loading all_players.csv...")
 with open(f"{DATA_DIR}/all_players.csv", "r") as f:
     reader = csv.DictReader(f)
@@ -443,10 +415,6 @@ with open(f"{DATA_DIR}/all_players.csv", "r") as f:
 connection.commit()
 print(f"  Players: {player_count}, Teams: {team_count}")
 
-# ------------------------------------------------------------------ #
-# 2. Games — data/2026/2026_games_teams.csv
-# One row per team per game; only insert the game once using HOME row
-# ------------------------------------------------------------------ #
 print("Loading 2026_games_teams.csv...")
 with open(f"{DATA_DIR}/2026_games_teams.csv", "r") as f:
     reader = csv.DictReader(f)
@@ -484,9 +452,6 @@ with open(f"{DATA_DIR}/2026_games_teams.csv", "r") as f:
 connection.commit()
 print(f"  Seasons: {season_count}, Games: {game_count}")
 
-# ------------------------------------------------------------------ #
-# 3. Skater game stats — data/2026/2026_games_skaters.csv
-# ------------------------------------------------------------------ #
 print("Loading 2026_games_skaters.csv...")
 with open(f"{DATA_DIR}/2026_games_skaters.csv", "r") as f:
     reader = csv.DictReader(f)
@@ -533,9 +498,6 @@ with open(f"{DATA_DIR}/2026_games_skaters.csv", "r") as f:
 connection.commit()
 print(f"  Skater stats: {skater_stat_count}")
 
-# ------------------------------------------------------------------ #
-# 4. Goalie game stats — data/2026/2026_games_goalies.csv
-# ------------------------------------------------------------------ #
 print("Loading 2026_games_goalies.csv...")
 with open(f"{DATA_DIR}/2026_games_goalies.csv", "r") as f:
     reader = csv.DictReader(f)
@@ -582,9 +544,6 @@ with open(f"{DATA_DIR}/2026_games_goalies.csv", "r") as f:
 connection.commit()
 print(f"  Goalie stats: {goalie_stat_count}")
 
-# ------------------------------------------------------------------ #
-# 5. Line game stats — data/2026/2026_games_lines.csv
-# ------------------------------------------------------------------ #
 print("Loading 2026_games_lines.csv...")
 with open(f"{DATA_DIR}/2026_games_lines.csv", "r") as f:
     reader = csv.DictReader(f)
@@ -631,9 +590,6 @@ with open(f"{DATA_DIR}/2026_games_lines.csv", "r") as f:
 connection.commit()
 print(f"  Lines: {line_count}, Line stats: {line_stat_count}")
 
-# ------------------------------------------------------------------ #
-# 6. Shots — data/2026/2026_shots.csv
-# ------------------------------------------------------------------ #
 print("Loading 2026_shots.csv...")
 with open(f"{DATA_DIR}/2026_shots.csv", "r") as f:
     reader = csv.DictReader(f)
