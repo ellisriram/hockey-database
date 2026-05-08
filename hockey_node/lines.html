@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lines — Hockey Stats</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <a class="nav-logo" href="landing.html">🏒 Hockey Stats</a>
+  <a href="players.html">Players</a>
+  <a href="teams.html">Teams</a>
+  <a href="lines.html" class="active">Lines</a>
+  <a href="shots.html">Shots</a>
+</nav>
+
+<div class="page">
+  <div class="page-title">Line Stats</div>
+  <div class="page-sub">Select 2–3 players to see their stats in games they played together</div>
+
+  <div class="filters" style="flex-direction:column;align-items:flex-start;gap:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;width:100%">
+      <div class="field">
+        <label>Add player</label>
+        <div class="autocomplete-wrap">
+          <input id="f-player" type="text" placeholder="Search player name…" style="width:220px" autocomplete="off">
+          <div class="autocomplete-list" id="autocomplete" style="display:none"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Situation</label>
+        <select id="f-sit" style="width:110px">
+          <option value="5on5">5 on 5</option>
+          <option value="all">All</option>
+          <option value="5on4">Power play</option>
+          <option value="4on5">Pen. kill</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Season</label>
+        <select id="f-season" style="width:130px">
+          <option value="">All seasons</option>
+        </select>
+      </div>
+      <div class="field" style="justify-content:flex-end">
+        <label>&nbsp;</label>
+        <button onclick="search()">Search</button>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:600;color:#4a5580;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Selected players (2–3)</div>
+      <div class="player-pills" id="pills">
+        <span style="font-size:13px;color:#4a5580">No players selected yet</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="result">
+    <div class="state-box"><div class="icon">🤝</div>Search for 2–3 players above to see their shared stats</div>
+  </div>
+</div>
+
+<script>
+  let selectedPlayers = []; // [{player_id, player_name, position}]
+  let acTimeout = null;
+
+  async function loadSeasons() {
+    const res  = await fetch("/api/seasons");
+    const data = await res.json();
+    const sel  = document.getElementById("f-season");
+    data.forEach(s => {
+      const o = document.createElement("option");
+      o.value = s.season_year; o.textContent = s.season_label || s.season_year;
+      sel.appendChild(o);
+    });
+  }
+
+  // Autocomplete
+  document.getElementById("f-player").addEventListener("input", () => {
+    clearTimeout(acTimeout);
+    acTimeout = setTimeout(autocomplete, 250);
+  });
+
+  document.addEventListener("click", e => {
+    if (!e.target.closest(".autocomplete-wrap")) {
+      document.getElementById("autocomplete").style.display = "none";
+    }
+  });
+
+  async function autocomplete() {
+    const val = document.getElementById("f-player").value.trim();
+    if (val.length < 2) { document.getElementById("autocomplete").style.display = "none"; return; }
+
+    const res  = await fetch("/api/player-search?name=" + encodeURIComponent(val));
+    const data = await res.json();
+    const list = document.getElementById("autocomplete");
+
+    if (!data.length) { list.style.display = "none"; return; }
+
+    list.innerHTML = data.map(p =>
+      `<div class="autocomplete-item" onclick="addPlayer(${p.player_id},'${p.player_name.replace(/'/g,"\\'")}','${p.position}')">
+        <span>${p.player_name}</span>
+        <span class="pos">${p.position} · ${p.current_team || "?"}</span>
+      </div>`
+    ).join("");
+    list.style.display = "block";
+  }
+
+  function addPlayer(id, name, pos) {
+    document.getElementById("autocomplete").style.display = "none";
+    document.getElementById("f-player").value = "";
+    if (selectedPlayers.length >= 3) { alert("Maximum 3 players"); return; }
+    if (selectedPlayers.find(p => p.player_id === id)) return;
+    selectedPlayers.push({ player_id: id, player_name: name, position: pos });
+    renderPills();
+  }
+
+  function removePlayer(id) {
+    selectedPlayers = selectedPlayers.filter(p => p.player_id !== id);
+    renderPills();
+  }
+
+  function renderPills() {
+    const el = document.getElementById("pills");
+    if (!selectedPlayers.length) {
+      el.innerHTML = `<span style="font-size:13px;color:#4a5580">No players selected yet</span>`;
+      return;
+    }
+    el.innerHTML = selectedPlayers.map(p =>
+      `<div class="pill">
+        <span class="badge badge-${p.position}">${p.position}</span>
+        ${p.player_name}
+        <button onclick="removePlayer(${p.player_id})">✕</button>
+      </div>`
+    ).join("");
+  }
+
+  async function search() {
+    if (selectedPlayers.length < 2) { alert("Select at least 2 players"); return; }
+
+    const el = document.getElementById("result");
+    el.innerHTML = '<div class="spinner"></div>';
+
+    const params = new URLSearchParams({
+      player1:   selectedPlayers[0].player_id,
+      player2:   selectedPlayers[1].player_id,
+      situation: document.getElementById("f-sit").value,
+    });
+    if (selectedPlayers[2]) params.set("player3", selectedPlayers[2].player_id);
+    const season = document.getElementById("f-season").value;
+    if (season) params.set("season", season);
+
+    const res  = await fetch("/api/lines?" + params);
+    const rows = await res.json();
+    render(rows);
+  }
+
+  const COLS = [
+    { key: "player_name", label: "Player",  fmt: v => `<span class="hi">${v}</span>` },
+    { key: "position",    label: "Pos",     fmt: v => v ? `<span class="badge badge-${v}">${v}</span>` : "—" },
+    { key: "season_year", label: "Season",  fmt: v => `<span class="muted">${v}</span>` },
+    { key: "gp",          label: "GP",      fmt: v => v ?? "—" },
+    { key: "goals",       label: "G",       fmt: v => v ?? "—" },
+    { key: "a1",          label: "A1",      fmt: v => v ?? "—" },
+    { key: "a2",          label: "A2",      fmt: v => v ?? "—" },
+    { key: "points",      label: "PTS",     fmt: v => `<strong>${v ?? "—"}</strong>` },
+    { key: "x_goals",     label: "xG",      fmt: v => v ?? "—" },
+    { key: "hd_goals",    label: "HDG",     fmt: v => v ?? "—" },
+    { key: "game_score",  label: "GS avg",  fmt: v => v ?? "—" },
+    { key: "toi_min",     label: "TOI",     fmt: v => v ?? "—" },
+  ];
+
+  function render(rows) {
+    const el = document.getElementById("result");
+    if (!rows.length) {
+      el.innerHTML = `<div class="state-box">No shared games found for these players in the selected filters.</div>`;
+      return;
+    }
+
+    let html = `<div class="result-meta"><span class="result-count">${rows.length} rows</span></div>`;
+    html += `<div class="table-wrap"><table><thead><tr>`;
+    COLS.forEach(c => { html += `<th>${c.label}</th>`; });
+    html += `</tr></thead><tbody>`;
+    rows.forEach(r => {
+      html += `<tr>` + COLS.map(c => `<td>${c.fmt(r[c.key])}</td>`).join("") + `</tr>`;
+    });
+    html += `</tbody></table></div>`;
+    el.innerHTML = html;
+  }
+
+  loadSeasons();
+</script>
+</body>
+</html>
