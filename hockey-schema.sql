@@ -3,12 +3,18 @@ DROP SCHEMA IF EXISTS hockey_schema;
 CREATE SCHEMA hockey_schema;
 USE hockey_schema;
 
+CREATE TABLE division (
+    division_name VARCHAR(30) NOT NULL,
+    conference VARCHAR(20) NOT NULL,
+    PRIMARY KEY (division_name)
+);
+
 CREATE TABLE team (
-    team_code VARCHAR(3),
+    team_code VARCHAR(3) NOT NULL,
     team_name VARCHAR(100),
-    conference VARCHAR(20),
-    division VARCHAR(30),
-    PRIMARY KEY (team_code)
+    division VARCHAR(30) NOT NULL,
+    PRIMARY KEY (team_code),
+    FOREIGN KEY (division) REFERENCES division(division_name)
 );
 
 CREATE TABLE season (
@@ -23,7 +29,11 @@ CREATE TABLE player (
     player_name VARCHAR(100),
     position VARCHAR(2),
     shoots VARCHAR(1),
-    birth_year INT,
+    birth_date DATE,
+    weight INT,
+    height VARCHAR(10),
+    nationality VARCHAR(3),
+    jersey_number INT,
     current_team VARCHAR(3),
     PRIMARY KEY (player_id),
     FOREIGN KEY (current_team) REFERENCES team(team_code)
@@ -37,7 +47,7 @@ CREATE TABLE game (
     away_team VARCHAR(3),
     home_score INT,
     away_score INT,
-    home_win BOOLEAN,
+    home_win BOOLEAN AS (home_score > away_score) STORED,
     is_playoffs BOOLEAN,
     PRIMARY KEY (game_id),
     FOREIGN KEY (season_year) REFERENCES season(season_year),
@@ -55,11 +65,11 @@ CREATE TABLE player_game_stats (
     goals INT,
     primary_assists INT,
     secondary_assists INT,
-    points INT,
+    points INT AS (goals + primary_assists + secondary_assists) STORED,
     shots_on_goal INT,
     missed_shots INT,
     blocked_shot_attempts INT,
-    shot_attempts INT,
+    shot_attempts INT AS (shots_on_goal + missed_shots + blocked_shot_attempts) STORED,
     x_goals FLOAT,
     rebounds INT,
     rebound_goals INT,
@@ -109,8 +119,47 @@ CREATE TABLE player_game_stats (
     FOREIGN KEY (game_id) REFERENCES game(game_id)
 );
 
+CREATE TABLE goalie_game_stats (
+    player_id INT,
+    game_id INT,
+    situation VARCHAR(10),
+    icetime INT,
+    x_goals FLOAT,
+    goals_against INT,
+    unblocked_shot_attempts INT,
+    x_rebounds FLOAT,
+    rebounds INT,
+    x_freeze FLOAT,
+    freeze INT,
+    x_on_goal FLOAT,
+    on_goal INT,
+    x_play_stopped FLOAT,
+    play_stopped INT,
+    x_play_continued_in_zone FLOAT,
+    play_continued_in_zone INT,
+    x_play_continued_outside_zone FLOAT,
+    play_continued_outside_zone INT,
+    flurry_adjusted_x_goals FLOAT,
+    low_danger_shots INT,
+    medium_danger_shots INT,
+    high_danger_shots INT,
+    low_danger_x_goals FLOAT,
+    medium_danger_x_goals FLOAT,
+    high_danger_x_goals FLOAT,
+    low_danger_goals INT,
+    medium_danger_goals INT,
+    high_danger_goals INT,
+    blocked_shot_attempts INT,
+    penalty_minutes INT,
+    penalties INT,
+    PRIMARY KEY (player_id, game_id, situation),
+    CONSTRAINT chk_goalie_situation CHECK (situation IN ('all','5on5','5on4','4on5','other')),
+    FOREIGN KEY (player_id) REFERENCES player(player_id),
+    FOREIGN KEY (game_id) REFERENCES game(game_id)
+);
+
 CREATE TABLE line (
-    line_id VARCHAR(50),
+    line_id VARCHAR(25),
     line_name VARCHAR(150),
     position VARCHAR(10),
     team_code VARCHAR(3),
@@ -119,7 +168,7 @@ CREATE TABLE line (
 );
 
 CREATE TABLE line_player (
-    line_id VARCHAR(50),
+    line_id VARCHAR(25),
     player_id INT,
     season_year INT,
     PRIMARY KEY (line_id, player_id, season_year),
@@ -129,7 +178,7 @@ CREATE TABLE line_player (
 );
 
 CREATE TABLE line_game_stats (
-    line_id VARCHAR(50),
+    line_id VARCHAR(25),
     game_id INT,
     situation VARCHAR(10),
     icetime INT,
@@ -204,7 +253,6 @@ CREATE TABLE line_game_stats (
 CREATE TABLE shot (
     shot_id INT AUTO_INCREMENT,
     game_id INT NOT NULL,
-    season_year INT NOT NULL,
     team_code VARCHAR(3) NOT NULL,
     shooter_player_id INT,
     goalie_id INT,
@@ -231,7 +279,6 @@ CREATE TABLE shot (
     shot_angle_rebound_royal_road BOOLEAN,
     period INT,
     time INT,
-    is_home_team BOOLEAN,
     home_team_goals INT,
     away_team_goals INT,
     home_empty_net BOOLEAN,
@@ -247,15 +294,12 @@ CREATE TABLE shot (
     time_since_last_event FLOAT,
     time_since_faceoff FLOAT,
     player_position_that_did_event VARCHAR(2),
-    shooter_left_right VARCHAR(1),
-    off_wing BOOLEAN,
     shooter_time_on_ice FLOAT,
     shooter_time_on_ice_since_faceoff FLOAT,
     time_difference_since_change FLOAT,
     average_rest_difference FLOAT,
     PRIMARY KEY (shot_id),
     FOREIGN KEY (game_id) REFERENCES game(game_id),
-    FOREIGN KEY (season_year) REFERENCES season(season_year),
     FOREIGN KEY (team_code) REFERENCES team(team_code),
     FOREIGN KEY (shooter_player_id) REFERENCES player(player_id),
     FOREIGN KEY (goalie_id) REFERENCES player(player_id)
